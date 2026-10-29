@@ -131,7 +131,22 @@ def get_run(run_id: str):
 def list_runs():
     conn = get_connection()
     try:
-        rows = conn.execute('SELECT * FROM runs ORDER BY started_at DESC').fetchall()
+        rows = conn.execute(
+            """
+            SELECT runs.*,
+                   COALESCE(event_counts.event_count, 0) AS event_count,
+                   COALESCE(event_counts.failed_event_count, 0) AS failed_event_count
+            FROM runs
+            LEFT JOIN (
+                SELECT run_id,
+                       COUNT(*) AS event_count,
+                       SUM(CASE WHEN status = 'failure' THEN 1 ELSE 0 END) AS failed_event_count
+                FROM events
+                GROUP BY run_id
+            ) AS event_counts ON event_counts.run_id = runs.id
+            ORDER BY runs.started_at DESC
+            """
+        ).fetchall()
         return [dict(row) for row in rows]
     finally:
         conn.close()

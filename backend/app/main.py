@@ -94,6 +94,9 @@ def diagnose_run(run_id: str):
         raise HTTPException(status_code=404, detail='Run not found.')
 
     events = list_events(run_id)
+    if not events:
+        raise HTTPException(status_code=409, detail='No events are recorded for this run yet.')
+
     provider = get_meta_provider()
     raw_diagnosis = provider.diagnose(original['task_description'], events, {'scenario_id': original['scenario_id']})
     diagnosis = parse_diagnosis(raw_diagnosis)

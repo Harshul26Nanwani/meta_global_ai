@@ -39,6 +39,10 @@ def test_create_run_and_ingest_events():
     assert list_response.status_code == 200
     assert len(list_response.json()['events']) >= 1
 
+    run_summary = next(run for run in client.get('/api/runs').json()['runs'] if run['id'] == run_id)
+    assert run_summary['event_count'] == 1
+    assert run_summary['failed_event_count'] == 0
+
 
 def test_replay_returns_verification_status():
     client = TestClient(app)

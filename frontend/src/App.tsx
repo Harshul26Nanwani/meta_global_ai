@@ -36,6 +36,18 @@ type Comparison = {
   replays: ReplayResult[]
 }
 
+type RunItem = {
+  id: string
+  parent_run_id?: string | null
+  scenario_id?: string
+  started_at: string
+  status: string
+  task_description?: string
+  agent_version?: string
+  event_count?: number
+  failed_event_count?: number
+}
+
 const parseRecord = (value: unknown): Record<string, unknown> => {
   if (typeof value === 'string') {
     try {
@@ -69,7 +81,7 @@ const emptyRun = {
 const navItems = ['session', 'history', 'logs', 'settings']
 
 function App() {
-  const [runs, setRuns] = useState<any[]>([])
+  const [runs, setRuns] = useState<RunItem[]>([])
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
   const [events, setEvents] = useState<EventItem[]>([])
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
@@ -85,11 +97,14 @@ function App() {
         if (runsResponse.ok) {
           setApiStatus('connected')
           const runsPayload = await runsResponse.json()
-          const nextRuns = runsPayload.runs || []
-          const sessions = nextRuns.filter((run: { parent_run_id?: string | null }) => !run.parent_run_id)
+          const nextRuns: RunItem[] = runsPayload.runs || []
+          const sessions = nextRuns.filter((run) => !run.parent_run_id)
           setRuns(sessions)
           if (sessions.length > 0) {
-            setActiveRunId(sessions[0].id)
+            const bestInitialRun = sessions.find((run) => (run.failed_event_count || 0) > 0)
+              || sessions.find((run) => (run.event_count || 0) > 0)
+              || sessions[0]
+            setActiveRunId(bestInitialRun.id)
             return
           }
         } else {

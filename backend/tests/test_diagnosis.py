@@ -97,3 +97,17 @@ def test_diagnosis_uses_real_run_event_ids():
     body = diagnosis_response.json()
     assert body['suspected_divergence_event_id'] in {first_event['id'], second_event['id']}
     assert body['recommended_correction'] == 'add_verification_step'
+
+
+def test_diagnosis_of_empty_run_returns_conflict_instead_of_server_error():
+    client = TestClient(app)
+    run_response = client.post('/api/runs', json={
+        'task_description': 'Inspect an empty run.',
+        'scenario_id': 'empty-run',
+    })
+    run_id = run_response.json()['id']
+
+    response = client.get(f'/api/runs/{run_id}/diagnosis')
+
+    assert response.status_code == 409
+    assert response.json()['detail'] == 'No events are recorded for this run yet.'
