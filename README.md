@@ -32,34 +32,34 @@ TraceBack is a lightweight debugging and replay platform for AI agent runs. The 
 
    ```powershell
    cd backend
-   C:/Users/Asus/AppData/Local/Programs/Python/Python39/python.exe -m pip install -r requirements.txt
+   python.exe -m pip install -r requirements.txt
    ```
 
 3. Install Playwright browser dependencies:
 
    ```powershell
-   C:/Users/Asus/AppData/Local/Programs/Python/Python39/python.exe -m playwright install chromium
+   python.exe -m playwright install chromium
    ```
 
 4. Start the backend:
 
    ```powershell
    cd backend
-   C:/Users/Asus/AppData/Local/Programs/Python/Python39/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload
+   python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload
    ```
 
 5. Run the demo agent:
 
    ```powershell
    cd backend
-   C:/Users/Asus/AppData/Local/Programs/Python/Python39/python.exe -m app.demo_agent
+   python.exe -m app.demo_agent
    ```
 
 6. Run the automated tests:
 
    ```powershell
    cd backend
-   C:/Users/Asus/AppData/Local/Programs/Python/Python39/python.exe -m pytest -q tests
+   python.exe -m pytest -q tests
    ```
 
 ## Known limitations

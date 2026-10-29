@@ -92,6 +92,9 @@ def test_diagnosis_uses_real_run_event_ids():
         'output_payload': {'result': 'failed'}
     }).json()
 
+    get_response = client.get(f'/api/runs/{run_id}/diagnosis')
+    assert get_response.status_code == 404
+
     diagnosis_response = client.post(f'/api/runs/{run_id}/diagnose')
     assert diagnosis_response.status_code == 200, diagnosis_response.text
     body = diagnosis_response.json()
@@ -108,6 +111,9 @@ def test_diagnosis_of_empty_run_returns_conflict_instead_of_server_error():
     run_id = run_response.json()['id']
 
     response = client.get(f'/api/runs/{run_id}/diagnosis')
+    assert response.status_code == 404
+
+    response = client.post(f'/api/runs/{run_id}/diagnose')
 
     assert response.status_code == 409
     assert response.json()['detail'] == 'No events are recorded for this run yet.'

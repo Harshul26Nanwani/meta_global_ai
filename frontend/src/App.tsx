@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
 type EventItem = {
@@ -88,7 +88,12 @@ function App() {
   const [diagnosis, setDiagnosis] = useState<Diagnosis | null>(null)
   const [comparison, setComparison] = useState<Comparison | null>(null)
   const [apiStatus, setApiStatus] = useState<'checking' | 'connected' | 'offline'>('checking')
+  const [detailsLoading, setDetailsLoading] = useState(false)
+  const [diagnosisLoading, setDiagnosisLoading] = useState(false)
+  const [diagnosisMessage, setDiagnosisMessage] = useState('')
+  const [detailsError, setDetailsError] = useState('')
   const [replayState, setReplayState] = useState<{ loading: boolean; message: string; status?: string }>({ loading: false, message: '' })
+  const activeRunIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     const load = async () => {
@@ -104,6 +109,7 @@ function App() {
             const bestInitialRun = sessions.find((run) => (run.failed_event_count || 0) > 0)
               || sessions.find((run) => (run.event_count || 0) > 0)
               || sessions[0]
+            activeRunIdRef.current = bestInitialRun.id
             setActiveRunId(bestInitialRun.id)
             return
           }
@@ -120,53 +126,73 @@ function App() {
   }, [])
 
   useEffect(() => {
+    activeRunIdRef.current = activeRunId
     if (!activeRunId) {
       return
     }
 
+    const controller = new AbortController()
     const loadDetails = async () => {
+      setDetailsLoading(true)
+      setDetailsError('')
       setEvents([])
       setDiagnosis(null)
       setComparison(null)
       setSelectedEventId(null)
+      setDiagnosisMessage('')
+      setDiagnosisLoading(false)
+      setReplayState({ loading: false, message: '' })
       try {
         const [eventsResponse, diagnosisResponse, comparisonResponse] = await Promise.all([
-          fetch(`/api/runs/${activeRunId}/events`),
-          fetch(`/api/runs/${activeRunId}/diagnosis`),
-          fetch(`/api/runs/${activeRunId}/comparison`),
+          fetch(`/api/runs/${activeRunId}/events`, { signal: controller.signal }),
+          fetch(`/api/runs/${activeRunId}/diagnosis`, { signal: controller.signal }),
+          fetch(`/api/runs/${activeRunId}/comparison`, { signal: controller.signal }),
         ])
 
-        if (eventsResponse.ok) {
-          const eventPayload = await eventsResponse.json()
-          setEvents((eventPayload.events || []).map((event: EventItem) => ({
-            ...event,
-            input_payload: parseRecord(event.input_payload),
-            output_payload: parseRecord(event.output_payload),
-          })))
+        if (!eventsResponse.ok) {
+          throw new Error('Unable to load run events.')
         }
+        const eventPayload = await eventsResponse.json()
+        setEvents((eventPayload.events || []).map((event: EventItem) => ({
+          ...event,
+          input_payload: parseRecord(event.input_payload),
+          output_payload: parseRecord(event.output_payload),
+        })))
 
         if (diagnosisResponse.ok) {
           const diagnosisPayload = await diagnosisResponse.json()
           setDiagnosis(diagnosisPayload)
+        } else if (diagnosisResponse.status !== 404) {
+          throw new Error('Unable to load run diagnosis.')
         }
 
-        if (comparisonResponse.ok) {
-          const comparisonPayload = await comparisonResponse.json()
-          setComparison({
-            ...comparisonPayload,
-            replays: (comparisonPayload.replays || []).map((replay: ReplayResult) => ({
-              ...replay,
-              assertion_results: parseRecord(replay.assertion_results),
-              state_diff: parseRecord(replay.state_diff),
-            })),
-          })
+        if (!comparisonResponse.ok) {
+          throw new Error('Unable to load replay history.')
         }
+        const comparisonPayload = await comparisonResponse.json()
+        setComparison({
+          ...comparisonPayload,
+          replays: (comparisonPayload.replays || []).map((replay: ReplayResult) => ({
+            ...replay,
+            assertion_results: parseRecord(replay.assertion_results),
+            state_diff: parseRecord(replay.state_diff),
+          })),
+        })
       } catch (error) {
-        console.warn('Unable to load detailed run data.', error)
+        if (!controller.signal.aborted) {
+          const message = error instanceof Error ? error.message : 'Unable to load run details.'
+          setDetailsError(message)
+          console.warn(message, error)
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setDetailsLoading(false)
+        }
       }
     }
 
     loadDetails()
+    return () => controller.abort()
   }, [activeRunId])
 
   const selectedRun = useMemo(() => {
@@ -193,22 +219,54 @@ function App() {
     || timelineEntries.find((event) => event.id === diagnosis?.suspected_divergence_event_id)
     || timelineEntries[0]
   const latestReplay = comparison?.replays?.[0]
+  const latestReplayIsObserved = latestReplay
+    ? parseRecord(latestReplay.state_diff).execution_mode === 'playwright_observed'
+    : false
 
-  const handleReplay = async () => {
-    if (!activeRunId) {
+  const handleDiagnose = async () => {
+    if (!activeRunId || events.length === 0) {
       return
     }
 
-    const correctionType = diagnosis?.recommended_correction || 'add_verification_step'
+    const runId = activeRunId
+    setDiagnosisLoading(true)
+    setDiagnosisMessage('')
+    try {
+      const response = await fetch(`/api/runs/${runId}/diagnose`, { method: 'POST' })
+      const payload = await response.json()
+      if (!response.ok) {
+        throw new Error(payload.detail || 'Diagnosis failed.')
+      }
+      if (activeRunIdRef.current === runId) {
+        setDiagnosis(payload)
+        setDiagnosisMessage('Diagnosis completed.')
+      }
+    } catch (error) {
+      if (activeRunIdRef.current === runId) {
+        setDiagnosisMessage(error instanceof Error ? error.message : 'Diagnosis failed.')
+      }
+    } finally {
+      if (activeRunIdRef.current === runId) {
+        setDiagnosisLoading(false)
+      }
+    }
+  }
+
+  const handleReplay = async () => {
+    if (!activeRunId || !diagnosis) {
+      return
+    }
+
+    const runId = activeRunId
+    const correctionType = diagnosis.recommended_correction
     setReplayState({ loading: true, message: 'Running replay…' })
 
     try {
-      const response = await fetch(`/api/runs/${activeRunId}/replay`, {
+      const response = await fetch(`/api/runs/${runId}/replay`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           correction: { type: correctionType, target: 'cart_check' },
-          allowlist: [correctionType],
         }),
       })
 
@@ -217,20 +275,32 @@ function App() {
         throw new Error(payload.detail || 'Replay failed.')
       }
 
-      const nextReplayList = comparison?.replays ? [payload, ...comparison.replays] : [payload]
-      setComparison({ ...(comparison || { original_run_id: activeRunId }), original_run_id: activeRunId, replays: nextReplayList })
-      setReplayState({ loading: false, message: 'Replay succeeded.', status: payload.verification_status })
+      if (activeRunIdRef.current === runId) {
+        setComparison((current) => ({
+          ...(current || { original_run_id: runId }),
+          original_run_id: runId,
+          replays: [payload, ...(current?.replays || [])],
+        }))
+        setReplayState({
+          loading: false,
+          message: payload.verification_status === 'verified'
+            ? 'Browser replay verified against the storefront.'
+            : 'Replay completed, but verification did not pass.',
+          status: payload.verification_status,
+        })
+      }
     } catch (error) {
-      setReplayState({
-        loading: false,
-        message: error instanceof Error ? error.message : 'Replay failed.',
-      })
+      if (activeRunIdRef.current === runId) {
+        setReplayState({
+          loading: false,
+          message: error instanceof Error ? error.message : 'Replay failed.',
+        })
+      }
     }
   }
 
-  const runDateLabel = runs.length > 0 && activeRunId
-    ? new Date((runs.find((run) => run.id === activeRunId)?.started_at || Date.now())).toLocaleString()
-    : '10/28/2026, 4:41:48 PM'
+  const activeRun = runs.find((run) => run.id === activeRunId)
+  const runDateLabel = activeRun ? new Date(activeRun.started_at).toLocaleString() : 'No run selected'
 
   return (
     <div className="traceback-app-shell">
@@ -261,7 +331,7 @@ function App() {
         <header className="traceback-header">
           <div>
             <h1>Agent Trace Replay</h1>
-            <p>Scrub completed agent sessions. Every step carries its NLP, implied IR, and timing.</p>
+            <p>Inspect trace evidence, diagnose failures, and verify corrections in a browser replay.</p>
           </div>
           <div className="header-status-group">
             <span className={`connection-status ${apiStatus}`}><i />{apiStatus === 'connected' ? 'API connected' : apiStatus === 'offline' ? 'API offline' : 'Connecting'}</span>
@@ -278,7 +348,10 @@ function App() {
                   key={run.id}
                   type="button"
                   className={`session-item ${activeRunId === run.id ? 'selected' : ''}`}
-                  onClick={() => setActiveRunId(run.id)}
+                  onClick={() => {
+                    activeRunIdRef.current = run.id
+                    setActiveRunId(run.id)
+                  }}
                 >
                   <div className={`session-dot ${run.status === 'failed' ? 'failed' : ''}`} aria-hidden="true" />
                   <div className="session-meta">
@@ -307,7 +380,9 @@ function App() {
             </div>
 
             <div className="timeline-track" aria-label="Run event timeline">
-              {timelineEntries.length > 0 ? timelineEntries.map((entry) => (
+              {detailsLoading ? (
+                <div className="timeline-empty">Loading trace…</div>
+              ) : timelineEntries.length > 0 ? timelineEntries.map((entry) => (
                 <button
                   key={entry.id}
                   type="button"
@@ -335,14 +410,24 @@ function App() {
             <section className="root-cause-panel">
               <div className="section-kicker">DIAGNOSIS</div>
               <div className="root-cause-heading">
-                <h2>{diagnosis?.summary || 'Diagnosis is not available yet'}</h2>
-                <span className="classification-tag">{diagnosis?.classification || 'Awaiting evidence'}</span>
+                <h2>{diagnosis?.summary || (diagnosisLoading ? 'Analyzing recorded evidence…' : 'Diagnosis not run')}</h2>
+                {diagnosis ? (
+                  <span className="classification-tag">{diagnosis.classification}</span>
+                ) : (
+                  <button type="button" className="replay-button diagnose-button" onClick={handleDiagnose} disabled={diagnosisLoading || detailsLoading || events.length === 0}>
+                    {diagnosisLoading ? 'Diagnosing…' : 'Run diagnosis'}
+                  </button>
+                )}
               </div>
-              <div className="diagnosis-details">
-                <div><span>Likely divergence</span><strong>{diagnosis?.suspected_divergence_event_id || 'Not identified'}</strong></div>
-                <div><span>Confidence</span><strong>{diagnosis?.confidence_estimate || 'Not provided'}</strong></div>
-                <div><span>Suggested correction</span><strong>{diagnosis?.recommended_correction || 'Not provided'}</strong></div>
-              </div>
+              {diagnosis ? (
+                <div className="diagnosis-details">
+                  <div><span>Likely divergence</span><strong>{diagnosis.suspected_divergence_event_id}</strong></div>
+                  <div><span>Confidence</span><strong>{diagnosis.confidence_estimate || 'Not provided'}</strong></div>
+                  <div><span>Suggested correction</span><strong>{diagnosis.recommended_correction}</strong></div>
+                </div>
+              ) : (
+                <p className="diagnosis-prompt">{events.length ? 'Run a diagnosis to analyze this trace and unlock a supported replay.' : 'A diagnosis will be available when this run has recorded events.'}</p>
+              )}
               <div className="evidence-chain">
                 <span className="evidence-label">Evidence</span>
                 {diagnosis?.supporting_event_ids?.length ? diagnosis.supporting_event_ids.map((eventId) => {
@@ -359,6 +444,8 @@ function App() {
                   )
                 }) : <span className="muted-value">No supporting events</span>}
               </div>
+              {diagnosisMessage && <p className="diagnosis-message">{diagnosisMessage}</p>}
+              {detailsError && <p className="diagnosis-message error">{detailsError}</p>}
             </section>
 
             <div className="investigation-grid">
@@ -387,8 +474,8 @@ function App() {
                     <div className="section-kicker">REPLAY COMPARISON</div>
                     <h2>Original vs corrected</h2>
                   </div>
-                  <button type="button" className="replay-button" onClick={handleReplay} disabled={replayState.loading || !activeRunId}>
-                    {replayState.loading ? 'Replaying…' : 'Run verified replay'}
+                  <button type="button" className="replay-button" onClick={handleReplay} disabled={replayState.loading || detailsLoading || !activeRunId || !diagnosis}>
+                    {replayState.loading ? 'Replaying…' : 'Replay with verification'}
                   </button>
                 </div>
                 <div className="comparison-columns">
@@ -400,9 +487,9 @@ function App() {
                   </div>
                   <div className="comparison-state replay-state">
                     <span className="comparison-label">LATEST REPLAY</span>
-                    <strong>{latestReplay?.verification_status || 'Not run'}</strong>
+                    <strong>{latestReplay ? latestReplayIsObserved ? latestReplay.verification_status : 'legacy / unverified' : 'Not run'}</strong>
                     <p>{latestReplay?.correction_applied || selectedRun.correction}</p>
-                    {latestReplay ? (
+                    {latestReplay && latestReplayIsObserved ? (
                       <div className="assertion-list">
                         {Object.entries(parseRecord(latestReplay.assertion_results)).map(([assertion, result]) => (
                           <div key={assertion}>
@@ -411,10 +498,10 @@ function App() {
                           </div>
                         ))}
                       </div>
-                    ) : <span className="comparison-foot">A replay result will appear here.</span>}
+                    ) : <span className="comparison-foot">{latestReplay ? 'This stored result predates browser-observed replay evidence.' : 'A replay result will appear here.'}</span>}
                   </div>
                 </div>
-                {latestReplay && (
+                {latestReplay && latestReplayIsObserved && (
                   <details className="state-diff-details">
                     <summary>Inspect replay state diff</summary>
                     <pre>{formatRecord(latestReplay.state_diff)}</pre>

@@ -840,6 +840,27 @@ body {
   font-weight: 600;
 }
 
+.diagnosis-prompt {
+  margin-top: 12px;
+  color: #96aaa8;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.diagnosis-message {
+  margin: 10px 0 0;
+  color: #9bd6bd;
+  font-size: 0.74rem;
+}
+
+.diagnosis-message.error {
+  color: #e6a18f;
+}
+
+.diagnose-button {
+  min-width: 126px;
+}
+
 .classification-tag {
   flex: 0 0 auto;
   padding: 4px 7px;

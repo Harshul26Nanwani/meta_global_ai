@@ -13,6 +13,7 @@ from app.database import (
     list_events,
     list_replay_records,
     list_runs,
+    update_run_status,
 )
 from app.models import EventCreate, ReplayRequest, RunCreate
 from app.services.meta_provider import get_meta_provider
@@ -142,7 +143,7 @@ def get_diagnosis(run_id: str):
 
     stored = get_latest_diagnosis_for_run(run_id)
     if stored is None:
-        return diagnose_run(run_id)
+        raise HTTPException(status_code=404, detail='Diagnosis has not been run for this session.')
 
     return {
         'id': stored['id'],
@@ -164,52 +165,51 @@ def replay_run(run_id: str, payload: ReplayRequest):
     if original is None:
         raise HTTPException(status_code=404, detail='Run not found.')
     requested = payload.correction.get('type') if isinstance(payload.correction, dict) else None
-    allowed = set(payload.allowlist or [])
-    if not validate_correction(payload.correction, allowed):
-        raise HTTPException(status_code=400, detail='Correction is not permitted by the allowlist.')
+    diagnosis = get_latest_diagnosis_for_run(run_id)
+    if diagnosis is None:
+        raise HTTPException(status_code=409, detail='Run diagnosis before requesting a replay.')
+    if requested != diagnosis['recommended_correction']:
+        raise HTTPException(status_code=400, detail='Replay correction must match the diagnosis recommendation.')
+    if not validate_correction(payload.correction, {'add_verification_step'}):
+        raise HTTPException(status_code=400, detail='This correction is not implemented for replay yet.')
 
-    replay_run = create_run_record(
+    replay_record = create_run_record(
         task_description=original['task_description'],
         scenario_id=original['scenario_id'],
         agent_version=original['agent_version'],
         model_provider=original['model_provider'],
         model_identifier=original['model_identifier'],
         parent_run_id=run_id,
-        status='completed',
+        status='running',
         metadata={'replay_of': run_id, 'correction': payload.correction},
     )
+    try:
+        from app.demo_agent import run_verified_replay
 
-    create_event_record(
-        run_id=replay_run['id'],
-        event_type='task_started',
-        status='success',
-        input_payload={'replay_of': run_id, 'correction': payload.correction},
-        output_payload={'message': 'Replay initiated'},
-    )
-
-    verification_status = 'verified' if requested == 'add_verification_step' else 'inconclusive'
-    assertion_results = {
-        'cart_contains_valid_product': verification_status == 'verified',
-        'replay_completed': True,
-    }
-    state_diff = {'cart_changed': True, 'product_selected': 'budget_compatible'}
+        result = run_verified_replay(replay_record['id'], requested)
+        update_run_status(replay_record['id'], 'completed' if result['verification_status'] == 'verified' else 'failed')
+    except Exception as exc:
+        update_run_status(replay_record['id'], 'failed')
+        create_event_record(
+            run_id=replay_record['id'],
+            event_type='exception',
+            status='failure',
+            input_payload={'correction': requested},
+            output_payload={'error': str(exc)},
+        )
+        raise HTTPException(status_code=502, detail=f'Replay execution failed: {exc}') from exc
 
     create_replay_record(
         original_run_id=run_id,
-        replay_run_id=replay_run['id'],
-        diagnosis_id=None,
+        replay_run_id=replay_record['id'],
+        diagnosis_id=diagnosis['id'],
         correction_applied=requested,
-        verification_status=verification_status,
-        assertion_results=assertion_results,
-        state_diff=state_diff,
+        verification_status=result['verification_status'],
+        assertion_results=result['assertion_results'],
+        state_diff=result['state_diff'],
     )
 
-    return {
-        'replay_run_id': replay_run['id'],
-        'verification_status': verification_status,
-        'assertion_results': assertion_results,
-        'state_diff': state_diff,
-    }
+    return {'replay_run_id': replay_record['id'], **result}
 
 
 @app.get('/api/runs/{run_id}/comparison')

@@ -23,8 +23,8 @@ class EventCreate(BaseModel):
 
 
 class ReplayRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
     correction: Dict[str, Any]
-    allowlist: List[str] = Field(default_factory=list)
 
 
 class RunCompare(BaseModel):

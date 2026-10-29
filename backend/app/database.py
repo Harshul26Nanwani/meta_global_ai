@@ -128,6 +128,20 @@ def get_run(run_id: str):
         conn.close()
 
 
+def update_run_status(run_id: str, status: str):
+    completed_at = now_iso() if status in {'completed', 'failed'} else None
+    conn = get_connection()
+    try:
+        conn.execute(
+            'UPDATE runs SET status = ?, completed_at = ? WHERE id = ?',
+            (status, completed_at, run_id),
+        )
+        conn.commit()
+        return get_run(run_id)
+    finally:
+        conn.close()
+
+
 def list_runs():
     conn = get_connection()
     try:
