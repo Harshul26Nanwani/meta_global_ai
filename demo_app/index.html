@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TraceBack Demo Store</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="page-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">TraceBack Demo</p>
+          <h1>Budget laptop finder</h1>
+        </div>
+        <div class="budget-pill">Budget cap: ₹80,000</div>
+      </header>
+
+      <section class="catalog">
+        <article class="product-card" data-product-id="budget-pro-14" data-price="69999">
+          <div class="product-meta">
+            <span class="tag good">Best value</span>
+            <span class="rating">★ 4.8</span>
+          </div>
+          <h2>BudgetPro 14</h2>
+          <p class="description">14-inch laptop, 8GB RAM, 512GB SSD, all-day battery.</p>
+          <div class="price-row">
+            <strong>₹69,999</strong>
+            <button class="buy-button" data-product-id="budget-pro-14">Add to cart</button>
+          </div>
+        </article>
+
+        <article class="product-card highlighted" data-product-id="powermax-15" data-price="89999">
+          <div class="product-meta">
+            <span class="tag warning">Most popular</span>
+            <span class="rating">★ 4.9</span>
+          </div>
+          <h2>PowerMax 15</h2>
+          <p class="description">15-inch performance laptop with a high-end display and faster CPU.</p>
+          <div class="price-row">
+            <strong>₹89,999</strong>
+            <button class="buy-button" data-product-id="powermax-15">Add to cart</button>
+          </div>
+        </article>
+
+        <article class="product-card" data-product-id="litebook-13" data-price="74999">
+          <div class="product-meta">
+            <span class="tag neutral">Lightweight</span>
+            <span class="rating">★ 4.6</span>
+          </div>
+          <h2>LiteBook 13</h2>
+          <p class="description">Compact ultrabook with premium build and lower weight.</p>
+          <div class="price-row">
+            <strong>₹74,999</strong>
+            <button class="buy-button" data-product-id="litebook-13">Add to cart</button>
+          </div>
+        </article>
+      </section>
+
+      <aside class="cart-panel">
+        <h3>Cart</h3>
+        <p id="selected-product">No product selected</p>
+        <p id="cart-total">Total: ₹0</p>
+        <button id="checkout-button">Verify cart</button>
+      </aside>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

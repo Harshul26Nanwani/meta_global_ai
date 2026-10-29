@@ -1,0 +1,32 @@
+.env
+.env.*
+!.env.example
+
+# Local databases and SQLite sidecar files
+backend/traceback.db
+backend/traceback.db-*
+
+# Python bytecode and test caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Frontend dependencies and generated output
+**/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Local environments and editor settings
+.venv/
+.vscode/
+.idea/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
